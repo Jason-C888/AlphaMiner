@@ -1,0 +1,15 @@
+.DS_Store
+
+__pycache__/
+*.py[cod]
+
+.venv/
+.pytest_cache/
+
+extracter/.env
+extracter/.vendor/
+
+extracter/output/*
+!extracter/output/.gitkeep
+研报/
+*.pdf
