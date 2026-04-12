@@ -1,0 +1,24 @@
+{
+  "version": "sft_20260412T153913",
+  "source_name": "samples2.jsonl",
+  "total_lines": 37,
+  "kept_rows": 37,
+  "dropped_rows": 0,
+  "malformed_rows": 0,
+  "schema_issue_rows": 0,
+  "prepared_sample_count": 37,
+  "unique_report_count": 5,
+  "unique_broker_count": 4,
+  "cleaning_hook": {
+    "implemented": false,
+    "mode": "placeholder_keep_all"
+  },
+  "classification_hook": {
+    "implemented": false,
+    "mode": "placeholder_null_class"
+  },
+  "input_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/extracter/output/samples2.jsonl",
+  "prepared_samples_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/prepared_samples.jsonl",
+  "review_records_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/output/review_records.jsonl",
+  "summary_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/output/m1_summary.json"
+}

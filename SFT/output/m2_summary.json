@@ -1,0 +1,36 @@
+{
+  "source_name": "prepared_samples.jsonl",
+  "input_sample_count": 37,
+  "unique_report_count": 5,
+  "allowed_field_count": 170,
+  "report_split_counts": {
+    "train": 3,
+    "val": 1,
+    "test": 1
+  },
+  "sample_split_counts": {
+    "train": 21,
+    "val": 9,
+    "test": 7
+  },
+  "versions": [
+    "sft_20260412T153913"
+  ],
+  "split_strategy": {
+    "unit": "report_title",
+    "target_ratio": {
+      "train": 0.8,
+      "val": 0.1,
+      "test": 0.1
+    },
+    "assignment": "stable_hash_order"
+  },
+  "trainer_framework": "trl",
+  "train_record_format": "conversational_prompt_completion",
+  "input_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/prepared_samples.jsonl",
+  "train_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/train.jsonl",
+  "val_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/val.jsonl",
+  "test_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/test.jsonl",
+  "split_manifest_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/output/split_manifest.jsonl",
+  "summary_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/output/m2_summary.json"
+}
