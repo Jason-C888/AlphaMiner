@@ -195,6 +195,32 @@
 - `output/samples.jsonl`
 - `output/failures.csv`
 
+### 7.3 Generation 上下文传递模式
+
+Generation 阶段向 LLM 传递报告上下文时，需要支持两种可切换模式：
+
+1. `section`
+   - 仅传递章节级候选片段
+   - 片段来源于当前片段发现逻辑筛出的高置信段落
+   - 优点是 token 成本更低、主题更聚焦
+   - 风险是跨段定义、上下文依赖和符号说明可能被截断
+2. `full_text`
+   - 传递整篇 PDF 正文文本
+   - 默认不包含最后一页
+   - 优点是语义上下文更完整，适合定义跨段分布的研报
+   - 风险是噪声更高、token 成本更高、提示词控制要求更高
+
+推荐方案：
+
+- 默认使用 `section`
+- 当候选片段定位质量差，或因子定义明显依赖跨章节上下文时，手动切换到 `full_text`
+- 两种模式只影响传给 LLM 的文本范围，不改变候选报告筛选逻辑和结果校验逻辑
+
+当前不建议默认自动回退：
+
+- 即不建议在 `section` 失败后自动切换到 `full_text`
+- 该行为会增加流程不透明性，后续如需要可作为显式增强能力补充
+
 ## 8. 模块设计
 
 ### 8.1 CLI
@@ -216,6 +242,10 @@
   - 在 Generation 阶段表示最终样本数量上限
 - `--max-qps`
   - 每秒最大 LLM 调用数量
+- `--context-mode`
+  - 取值：`section` / `full_text`
+  - 默认：`section`
+  - 控制 Generation 阶段向 LLM 传递章节级候选片段还是整篇正文
 
 ### 8.2 pipeline.py
 
@@ -275,6 +305,7 @@
 - 统一维护阈值参数、QPS、候选数量和评分阈值
 - 统一维护模型与提示词相关配置入口
 - 统一维护输出文件命名：`candidates.csv`、`samples.jsonl`、`failures.csv`
+- 统一维护 Generation 上下文传递模式的默认值
 
 ### 8.7 Utils
 
@@ -334,7 +365,7 @@
 
 LLM 生成阶段应遵循以下原则：
 
-- 输入为候选报告及其相关片段，而不是整库无约束生成
+- 输入必须来自候选报告，且传递给模型的上下文范围是可配置的
 - 输出必须是结构化 JSON
 - 每个样本必须完整包含所有目标字段
 - `inspiration` 与 `reasoning` 必须符合非元叙述约束
@@ -342,6 +373,13 @@ LLM 生成阶段应遵循以下原则：
 - `required_inputs` 只能输出字段列名，不能输出表名
 - 无法满足的数据依赖必须明确写入 `inavailable_inputs`
 - `factor_python` 必须是面向真实量化宽表输入的可执行函数定义
+
+上下文模式要求：
+
+- `section` 模式下，仅传递章节级候选片段
+- `full_text` 模式下，传递整篇正文文本，但默认不包含最后一页
+- Prompt 中必须显式声明当前上下文模式，避免模型误判上下文完整性
+- 两种模式下输出 JSON 结构、结果校验标准和导出格式完全一致
 
 ## 11. 目录规划
 
@@ -408,3 +446,433 @@ extracter/
 - 可校验 `factor_python` 语法和输入字段合法性
 - 可输出 `samples.jsonl`
 - 任意失败均可在失败记录中定位
+
+## 14. 技术实现细节
+
+本章描述当前 `extracter` 模块已经落地的技术实现方案，重点说明运行时如何组织配置、如何完成 Discovery / Generation，以及失败如何被显式记录。
+
+### 14.1 运行入口与配置装载
+
+- CLI 入口为 `extracter/cli.py`
+- 统一通过 `--stage` 选择 `discovery` 或 `generate`
+- 统一通过 `build_runtime_config` 构建运行时配置对象
+- 运行时配置定义在 `extracter/configs.py`，主要包括：
+  - 路径配置：`env_file`、`output_dir`、`report_dir`、`data_dict_path`
+  - 流程参数：`max_factors_per_report`、`max_samples_generation`、`max_qps`
+  - LLM 配置：`base_url`、`api_key`、`model`、`timeout`、`max_retries`
+  - Prompt 配置：`generation_system_prompt`、`generation_user_prompt_template`
+
+当前 `.env` 采用轻量级 key-value 解析，不依赖额外配置库。
+
+### 14.2 Pipeline 编排方式
+
+主流程由 `extracter/pipeline.py` 负责，当前实现遵循“按阶段独立运行”的设计：
+
+1. `run_pipeline`
+   - 根据 `stage` 分发到 `run_discovery` 或 `run_generation`
+2. `run_discovery`
+   - 扫描 `研报/` 下 PDF
+   - 解析数据字典
+   - 调用报告评分逻辑
+   - 输出 `candidates.csv` 和 `failures.csv`
+3. `run_generation`
+   - 读取 `candidates.csv`
+   - 对候选报告重新解析 PDF
+   - 提取候选片段
+   - 调用 LLM 生成样本
+   - 校验结果后输出 `samples.jsonl` 和 `failures.csv`
+
+当前设计中 Discovery 和 Generation 完全解耦，Generation 不会隐式触发 Discovery。
+
+补充说明：
+
+- Discovery 与 Generation 的长耗时报告遍历阶段默认显示 `tqdm` 进度条，便于观察批处理进度
+
+### 14.3 数据字典解析实现
+
+数据字典解析位于 `extracter/parser/data_dict_parser.py`。
+
+实现要点：
+
+- 直接读取 `extracter/data_dict.md`
+- 按 `### 表名:` 识别表级块
+- 按 Markdown 表格抽取字段名与字段说明
+- 最终构造：
+  - `tables`：表名到字段集合的映射
+  - `allowed_factor_fields`：允许出现在 `required_inputs` 和 `factor_python` 中的字段白名单
+
+当前解析时会自动排除：
+
+- 标识字段：`code`、`day`、`pubDate`、`statDate`
+- 禁用字段：`paused`
+
+### 14.4 PDF 解析实现
+
+PDF 解析位于 `extracter/parser/pdf_parser.py`。
+
+实现要点：
+
+- 默认使用 `PyPDF2.PdfReader`
+- 输出统一结构 `ParsedPdf`
+  - `path`
+  - `page_count`
+  - `first_page_text`
+  - `full_text`
+- 对抽取出的文本执行空白规范化，避免后续评分受换行噪声影响
+- 默认跳过最后一页，不将末页纳入文本抽取
+- 若 PDF 只有 1 页，则保留该页，避免整篇文档为空
+
+为了降低环境依赖阻塞，当前额外支持本地 vendor 目录注入：
+
+- 若解释器环境中没有安装 `PyPDF2`
+- 会尝试从 `extracter/.vendor/` 加载
+- 若仍不可用，则显式抛出 `PdfParseError`
+
+这意味着 PDF 解析失败不会静默吞掉，而会进入失败记录。
+
+### 14.5 Discovery 评分实现
+
+Discovery 评分逻辑位于 `extracter/validation/report_rating.py`。
+
+#### 报告级字段抽取
+
+- `report_date`：通过文件名中的 `YYYYMMDD` 正则抽取
+- `broker`：仅通过文件名与首页文本中的券商关键词匹配抽取
+- 无法抽取时写为 `null`
+
+#### 报告级评分信号
+
+当前实现的评分由以下信号组合：
+
+- `text_extractable`
+- `text_length`
+- `section_signal_count`
+- `keyword_signal_count`
+- `candidate_section_count`
+- `broker_priority`
+- `garble_ratio`
+
+当前评分方式是启发式加权求和，不是训练得到的排序模型。
+
+#### 候选片段发现
+
+候选片段发现逻辑基于段落粒度：
+
+- 先按空行切分段落
+- 统计每段的正向关键词和负向关键词
+- 根据 `positive * 2 - negative` 计算片段分数
+- 过滤过短片段
+- 取分数最高的若干段作为候选片段
+
+候选片段仅用于 Generation 阶段输入，不写入 `candidates.csv`。
+
+#### Discovery 输出
+
+当前 `candidates.csv` 除 README 要求的最小字段外，还额外输出：
+
+- `report_path`
+- `report_date`
+- `broker`
+- `text_length`
+- `keyword_signal_count`
+- `section_signal_count`
+- `candidate_section_count`
+- `garble_ratio`
+
+这是为了后续 Generation 直接复用，并便于人工排查评分结果。
+
+### 14.6 LLM 调用实现
+
+LLM 调用位于 `extracter/llm_client.py`。
+
+实现要点：
+
+- 使用标准库 `urllib.request` 直接调用兼容 OpenAI Chat Completions 的接口
+- 当前请求体包含：
+  - `model`
+  - `messages`
+  - `temperature`
+- 若 `base_url` 未显式包含 `/chat/completions`，会自动补齐
+- 当前实现为串行调用，但在客户端内部做了基于 `max_qps` 的节流
+
+错误处理策略：
+
+- HTTP 错误：转成 `LLMClientError`
+- 网络错误：转成 `LLMClientError`
+- 响应 JSON 结构不合法：转成 `LLMClientError`
+- 模型文本中提取不到 JSON：转成 `LLMClientError`
+
+### 14.7 Prompt 模板实现
+
+Prompt 模板已从 pipeline 中抽离到 `extracter/configs.py`，便于按需求直接编辑。
+
+当前分为两部分：
+
+- `DEFAULT_GENERATION_SYSTEM_PROMPT`
+- `DEFAULT_GENERATION_USER_PROMPT_TEMPLATE`
+
+Generation 阶段会在运行时填充以下变量：
+
+- `report_title`
+- `report_date`
+- `broker`
+- `max_factors_per_report`
+- `allowed_fields`
+- `context_mode`
+- `context_payload`
+
+这样可以在不改业务编排代码的前提下，直接调整提示词策略。
+
+### 14.8 Generation 实现
+
+Generation 主流程位于 `run_generation` 与 `_run_generation_async`。
+
+当前执行顺序如下：
+
+1. 读取 `candidates.csv`
+2. 逐份候选报告重新解析 PDF
+3. 根据 `context_mode` 组织 Generation 输入上下文
+4. 若为 `section` 模式，则重新发现候选片段
+5. 若为 `full_text` 模式，则直接使用整篇正文文本
+6. 组装 Prompt
+7. 调用 LLM 获取结构化 JSON
+8. 读取 `samples` 列表
+9. 逐条执行结果校验
+10. 通过校验的样本进入 `samples.jsonl`
+11. 未通过校验的样本进入 `failures.csv`
+
+建议实现方案：
+
+- 在运行时配置中新增 `context_mode`
+- `context_mode=section` 时，沿用当前候选片段发现逻辑
+- `context_mode=full_text` 时，直接使用 `ParsedPdf.full_text`
+- 两种模式共用同一个 LLM Client、同一个校验器、同一个导出逻辑
+- `full_text` 模式下仍遵循“PDF 默认跳过最后一页”的解析规则
+- `section` 模式下若找不到高质量片段，继续记 `NO_FACTOR_FOUND`
+
+当前限制策略：
+
+- 总样本数不超过 `max_samples_generation`
+- 单报告样本数不超过 `max_factors_per_report`
+
+### 14.9 样本校验实现
+
+样本校验位于 `extracter/validation/result_validation.py`。
+
+当前已实现的检查包括：
+
+- 必要字段是否齐全
+- `inspiration`、`reasoning`、`factor_python` 是否为非空字符串
+- `required_inputs` / `inavailable_inputs` 是否为字符串列表
+- `required_inputs` 是否全部位于数据字典白名单内
+- `required_inputs` 是否包含 `paused`
+- `factor_python` 是否包含 `print` / `logging` / 注释
+- `factor_python` 是否能通过 `ast.parse`
+- 是否存在 `compute_factor`
+- 函数参数集合是否与 `required_inputs` 完全一致
+- 函数参数是否在函数体内实际被使用
+- `inspiration` / `reasoning` 是否包含来源转述式表述
+
+当前校验仍然偏“结构合法性 + 基本约束合法性”，还没有做到对“因子语义是否忠实于原始片段”进行深层语义校验。
+
+### 14.10 导出与失败记录实现
+
+导出逻辑位于 `extracter/utils/io_utils.py`。
+
+当前实现：
+
+- `write_candidates_csv`
+  - 输出候选报告清单
+- `write_failures_csv`
+  - 输出失败记录
+- `write_jsonl`
+  - 输出最终样本
+- `read_candidates_csv`
+  - 供 Generation 阶段读取 Discovery 产物
+
+失败记录统一使用 `FailureRecord` 数据结构，字段为：
+
+- `stage`
+- `report_title`
+- `reason_type`
+- `reason`
+
+当前失败类型已经覆盖：
+
+- `PARSE_ERROR`
+- `LOW_QUALITY`
+- `NO_FACTOR_FOUND`
+- `INVALID_JSON`
+- `INVALID_CODE`
+- `OTHER`
+
+### 14.11 当前实现边界
+
+当前技术实现已经完成：
+
+- 目录骨架
+- 配置装载
+- 数据字典解析
+- PDF 基础解析
+- Discovery 候选报告筛选
+- Prompt 模板配置化
+- LLM 样本生成主链路
+- 基础结果校验
+- 输出文件导出
+
+当前仍未完全完成或仍需继续增强的部分包括：
+
+- 更强的因子语义一致性校验
+- 更稳定的候选片段定位策略
+- 更严格的代码合法性与向量化校验
+- LLM 并发调度与重试策略细化
+- 更适合人工复核的中间视图输出
+
+## 15. Extracter 调用参数说明与示例
+
+`extracter` 的统一入口为：
+
+```bash
+python3 -m extracter.cli ...
+```
+
+### 15.1 参数说明
+
+| 参数名 | 是否必填 | 默认值 | 说明 |
+|------|------|------|------|
+| `--stage` | 是 | 无 | 运行阶段，取值为 `discovery` 或 `generate` |
+| `--context-mode` | 否 | `section` | Generation 阶段上下文模式，取值为 `section` 或 `full_text` |
+| `--env-file` | 否 | `extracter/.env` | LLM 与运行环境配置文件路径 |
+| `--output-path` | 否 | `extracter/output` | 输出目录 |
+| `--max-factors-per-report` | 否 | `3` | 单篇报告最多保留的有效样本数 |
+| `--max-samples-generation` | 否 | `10` | Discovery 阶段表示候选报告数量上限，Generation 阶段表示最终样本数量上限 |
+| `--max-qps` | 否 | `10.0` | LLM 调用的最大 QPS |
+
+补充说明：
+
+- `--context-mode` 只在 `--stage generate` 时实际生效
+- `--stage discovery` 时，流程会输出 `candidates.csv` 和 `failures.csv`
+- `--stage generate` 时，流程依赖 `candidates.csv`，并输出 `samples.jsonl` 和 `failures.csv`
+
+### 15.2 常用调用示例
+
+#### 示例 1：运行 Discovery，筛选候选报告
+
+```bash
+python3 -m extracter.cli --stage discovery
+```
+
+预期输出：
+
+- `extracter/output/candidates.csv`
+- `extracter/output/failures.csv`
+
+#### 示例 2：运行 Discovery，并限制只保留前 5 篇候选报告
+
+```bash
+python3 -m extracter.cli --stage discovery --max-samples-generation 5
+```
+
+适用场景：
+
+- 想先做小批量候选筛选验证
+- 想缩短首次调试时间
+
+#### 示例 3：用章节级候选片段进行样本抽取
+
+```bash
+python3 -m extracter.cli --stage generate --context-mode section
+```
+
+适用场景：
+
+- 希望降低 token 成本
+- 希望让模型更聚焦因子定义片段
+
+#### 示例 4：用全文正文进行样本抽取
+
+```bash
+python3 -m extracter.cli --stage generate --context-mode full_text
+```
+
+适用场景：
+
+- 候选片段切分不稳定
+- 因子定义分散在多个段落或多个章节
+- 希望保留更完整的上下文
+
+说明：
+
+- `full_text` 模式下，传给 LLM 的正文默认不包含 PDF 最后一页
+
+#### 示例 5：限制最终生成样本数，并控制单报告样本上限
+
+```bash
+python3 -m extracter.cli \
+  --stage generate \
+  --context-mode full_text \
+  --max-samples-generation 3 \
+  --max-factors-per-report 2
+```
+
+含义：
+
+- 最多生成 3 条最终样本
+- 单篇报告最多保留 2 条有效样本
+
+#### 示例 6：使用自定义环境文件与输出目录
+
+```bash
+python3 -m extracter.cli \
+  --stage generate \
+  --context-mode section \
+  --env-file extracter/.env \
+  --output-path extracter/output
+```
+
+适用场景：
+
+- 切换不同模型配置
+- 区分不同实验批次的输出目录
+
+### 15.3 输出结果说明
+
+命令执行结束后，CLI 会打印一段 JSON 结果摘要，当前主要字段包括：
+
+- `stage`：本次执行阶段
+- `output_dir`：输出目录
+- `candidate_count`：候选数量或最终样本数量
+- `failure_count`：失败记录数量
+- `candidates_path`：候选文件路径
+- `failures_path`：失败文件路径
+- `notes`：补充说明
+
+示例：
+
+```json
+{
+  "stage": "generate",
+  "output_dir": "extracter/output",
+  "candidate_count": 3,
+  "failure_count": 1,
+  "candidates_path": "extracter/output/candidates.csv",
+  "failures_path": "extracter/output/failures.csv",
+  "notes": []
+}
+```
+
+### 15.4 推荐调用顺序
+
+推荐按以下顺序执行：
+
+1. 先运行 `discovery`
+2. 检查 `candidates.csv` 是否符合预期
+3. 再运行 `generate`
+4. 检查 `samples.jsonl` 与 `failures.csv`
+
+推荐命令：
+
+```bash
+python3 -m extracter.cli --stage discovery --max-samples-generation 5
+python3 -m extracter.cli --stage generate --context-mode section --max-samples-generation 3
+```

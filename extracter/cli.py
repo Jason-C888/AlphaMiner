@@ -5,6 +5,7 @@ import json
 from dataclasses import asdict
 
 from .configs import (
+    DEFAULT_CONTEXT_MODE,
     DEFAULT_ENV_FILE,
     DEFAULT_MAX_FACTORS_PER_REPORT,
     DEFAULT_MAX_QPS,
@@ -21,6 +22,12 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("discovery", "generate"),
         required=True,
         help="Pipeline stage to run.",
+    )
+    parser.add_argument(
+        "--context-mode",
+        choices=("section", "full_text"),
+        default=DEFAULT_CONTEXT_MODE,
+        help="Generation context mode.",
     )
     parser.add_argument(
         "--env-file",
@@ -58,6 +65,7 @@ def main() -> int:
     args = parser.parse_args()
     config = build_runtime_config(
         stage=args.stage,
+        context_mode=args.context_mode,
         env_file=args.env_file,
         output_path=args.output_path,
         max_factors_per_report=args.max_factors_per_report,

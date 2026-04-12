@@ -142,7 +142,6 @@
             - parse pdf:读取output中的candidates.csv中的样本，进行解析
             - async LLM and sample generation：调用兼容 OpenAI Chat Completions 的 LLM 接口，生成结构化样本。
             - validation and export：通过程序校验结构正确性，再输出人工复核视图和失败记录。
-          - 
         - 实现要求：
           - 候选筛选与样本生成解耦，可分别调用
           - 所有失败显式进入失败记录output/failures.csv，而不是静默丢弃

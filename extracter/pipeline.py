@@ -15,6 +15,7 @@ from .utils.io_utils import (
     write_failures_csv,
     write_jsonl,
 )
+from .utils.progress import progress
 from .validation.report_rating import CandidateReport, discover_candidate_sections, rate_reports
 from .validation.result_validation import validate_generated_sample
 
@@ -122,15 +123,19 @@ async def _run_generation_async(
     client = LLMClient(config.llm)
     failures: list[FailureRecord] = []
     samples: list[dict] = []
-    for row in candidate_rows:
+    limited_rows = candidate_rows[: config.max_samples_generation]
+    for row in progress(limited_rows, total=len(limited_rows), desc="Generation"):
         if len(samples) >= config.max_samples_generation:
             break
         report_title = row.get("report_title", "")
         report_path = row.get("report_path", "")
         try:
             parsed = parse_pdf(report_path)
-            candidate_sections = discover_candidate_sections(parsed.full_text)
-            if not candidate_sections:
+            context_payload = _build_context_payload(
+                parsed_full_text=parsed.full_text,
+                context_mode=config.context_mode,
+            )
+            if context_payload is None:
                 failures.append(
                     FailureRecord(
                         stage="generate",
@@ -144,7 +149,8 @@ async def _run_generation_async(
                 report_title=report_title,
                 report_date=row.get("report_date") or None,
                 broker=row.get("broker") or None,
-                candidate_sections=candidate_sections,
+                context_mode=config.context_mode,
+                context_payload=context_payload,
                 data_dictionary=data_dictionary,
                 max_factors_per_report=config.max_factors_per_report,
                 prompts=config.prompts,
@@ -228,24 +234,22 @@ def _build_generation_request(
     report_title: str,
     report_date: str | None,
     broker: str | None,
-    candidate_sections: list[str],
+    context_mode: str,
+    context_payload: str,
     data_dictionary: DataDictionary,
     max_factors_per_report: int,
     prompts: PromptConfig,
 ) -> LLMRequest:
     allowed_fields = ", ".join(sorted(data_dictionary.allowed_factor_fields))
-    sections_text = "\n\n".join(
-        f"[候选片段 {index}]\n{section}"
-        for index, section in enumerate(candidate_sections, start=1)
-    )
     system_prompt = prompts.generation_system_prompt
     user_prompt = prompts.generation_user_prompt_template.format(
         report_title=report_title,
         report_date=report_date,
         broker=broker,
+        context_mode=context_mode,
         max_factors_per_report=max_factors_per_report,
         allowed_fields=allowed_fields,
-        sections_text=sections_text,
+        context_payload=context_payload,
     )
     return LLMRequest(system_prompt=system_prompt, user_prompt=user_prompt)
 
@@ -274,3 +278,17 @@ def _normalize_sample(
 
 def _slugify(text: str) -> str:
     return "".join(ch if ch.isalnum() else "_" for ch in text).strip("_").lower()[:80]
+
+
+def _build_context_payload(*, parsed_full_text: str, context_mode: str) -> str | None:
+    if context_mode == "full_text":
+        return parsed_full_text
+    if context_mode == "section":
+        candidate_sections = discover_candidate_sections(parsed_full_text)
+        if not candidate_sections:
+            return None
+        return "\n\n".join(
+            f"[候选片段 {index}]\n{section}"
+            for index, section in enumerate(candidate_sections, start=1)
+        )
+    raise ValueError(f"Unsupported context_mode: {context_mode}")

@@ -8,6 +8,7 @@ from ..parser.data_dict_parser import DataDictionary
 from ..parser.pdf_parser import PdfParseError, parse_pdf
 from ..parser.parser_utils import split_paragraphs
 from ..utils.io_utils import FailureRecord
+from ..utils.progress import progress
 
 
 POSITIVE_KEYWORDS = ("因子", "模型", "构建", "定义", "公式", "回归", "打分", "选股")
@@ -39,7 +40,7 @@ def rate_reports(
     del data_dictionary
     rated_reports: list[CandidateReport] = []
     failures: list[FailureRecord] = []
-    for pdf_path in pdf_paths:
+    for pdf_path in progress(pdf_paths, total=len(pdf_paths), desc="Discovery"):
         report_date = _extract_report_date(pdf_path.stem)
         broker = _extract_broker(pdf_path.stem, "")
         try:

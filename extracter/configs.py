@@ -8,29 +8,76 @@ from textwrap import dedent
 DEFAULT_ENV_FILE = ".env"
 DEFAULT_OUTPUT_DIR = "output"
 DEFAULT_STAGE = "discovery"
-DEFAULT_MAX_FACTORS_PER_REPORT = 3
-DEFAULT_MAX_SAMPLES_GENERATION = 10
-DEFAULT_MAX_QPS = 2.0
+DEFAULT_CONTEXT_MODE = "section"
+DEFAULT_MAX_FACTORS_PER_REPORT = 10
+DEFAULT_MAX_SAMPLES_GENERATION = 20
+DEFAULT_MAX_QPS = 20.0
 DEFAULT_GENERATION_SYSTEM_PROMPT = dedent(
-    """
-    你是量化因子抽取助手。
-    你必须只输出合法 JSON。
-    你需要从候选片段中抽取单因子样本。
-    inspiration 和 reasoning 必须直接描述金融现象、因子含义、市场规律和量化逻辑。
-    不要出现 研报、报告、文中、作者认为、根据研报、本报告、本文、这一章节 等来源转述或元叙述。
-    reasoning 必须以清晰的因子数学表达式或定义收尾。
-    required_inputs 只能包含给定字段白名单中的具体字段列名，不能输出表名。
-    required_inputs 必须尽可能少，且每个参数都必须在 compute_factor 中实际使用。
-    report_date 和 broker 不允许臆造。
-    factor_python 必须定义单个 compute_factor 函数，参数与 required_inputs 完全一致。
-    禁止使用 paused、分钟级数据、日内数据、print、logging、注释。
-    """
+"""
+你是量化因子抽取助手，目标是从候选文本中构造“可计算单因子”。
+
+你必须严格遵守以下规则：
+
+【输出格式】
+- 只能输出 JSON，不要输出 markdown
+- 顶层结构必须是：
+  {"samples": [...]}
+
+【字段要求】
+每个 sample 必须包含：
+- inspiration
+- reasoning
+- factor_python
+- required_inputs
+- inavailable_inputs
+
+【inspiration / reasoning】
+- 必须直接描述金融现象、市场规律、量化逻辑
+- 禁止出现任何来源描述或元叙述：
+  禁止：研报、报告、本文、作者认为、文中提到等
+- reasoning 必须是“推导式说明”，最后必须以明确数学表达式或定义收尾
+
+【required_inputs】
+- 只能使用给定字段白名单中的字段名（如 close, volume, money 等）
+- 必须是“实际计算中用到的字段”
+- 严禁出现未使用字段
+- 严禁默认只使用 close，必须根据因子逻辑选择字段
+
+【factor_python】
+- 必须定义函数：def compute_factor(...)
+- 参数必须与 required_inputs 完全一致（顺序也一致）
+- 每个 required_inputs 必须在函数中被实际使用
+- 输入的每个变量都是一个 DataFrame（index=日期, columns=股票）
+- 输出必须是同结构 DataFrame
+
+【计算约束】
+- 仅允许日频数据
+- 禁止分钟/tick/日内数据
+- 禁止使用 paused
+- 不允许 for 循环逐股票计算
+- 允许向量化计算（pandas / numpy）
+- 滚动窗口 ≤ 252日（约一年） 或者 12个月 
+- 所有计算必须能处理 NaN（默认 skipna 或 nan* 系列）
+
+【代码风格】
+- 禁止 print / logging
+- 禁止注释
+- 可使用中间变量
+
+【inavailable_inputs】
+- 若因子必须依赖但白名单中没有 → 填写类别（中文）
+- 能替代则不要填
+
+【核心原则】
+这是“因子定义生成任务”，不是文本总结任务。
+"""
 ).strip()
 DEFAULT_GENERATION_USER_PROMPT_TEMPLATE = dedent(
     """
     报告标题: {report_title}
     报告日期: {report_date}
     券商: {broker}
+    上下文模式: {context_mode}
     最多输出样本数: {max_factors_per_report}
 
     输出格式必须是 JSON 对象，形如：
@@ -39,8 +86,8 @@ DEFAULT_GENERATION_USER_PROMPT_TEMPLATE = dedent(
     允许使用的字段白名单:
     {allowed_fields}
 
-    候选片段:
-    {sections_text}
+    输入上下文:
+    {context_payload}
     """
 ).strip()
 
@@ -63,6 +110,7 @@ class PromptConfig:
 @dataclass(frozen=True)
 class RuntimeConfig:
     stage: str
+    context_mode: str
     env_file: Path
     output_dir: Path
     report_dir: Path
@@ -97,6 +145,7 @@ def _int_env(env: dict[str, str], key: str, default: int) -> int:
 def build_runtime_config(
     *,
     stage: str,
+    context_mode: str = DEFAULT_CONTEXT_MODE,
     env_file: str | Path | None = None,
     output_path: str | Path | None = None,
     max_factors_per_report: int = DEFAULT_MAX_FACTORS_PER_REPORT,
@@ -121,6 +170,7 @@ def build_runtime_config(
     )
     return RuntimeConfig(
         stage=stage,
+        context_mode=context_mode,
         env_file=resolved_env_file,
         output_dir=output_dir,
         report_dir=project_root / "研报",

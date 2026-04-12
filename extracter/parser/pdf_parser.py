@@ -47,16 +47,18 @@ def parse_pdf(path: str | Path) -> ParsedPdf:
     except Exception as exc:  # noqa: BLE001
         raise PdfParseError(f"Failed to open PDF: {exc}") from exc
 
+    pages = list(reader.pages)
+    if not pages:
+        raise PdfParseError("PDF contains no readable pages.")
+    pages_to_parse = pages[:-1] if len(pages) > 1 else pages
+
     page_texts: list[str] = []
-    for page in reader.pages:
+    for page in pages_to_parse:
         try:
             page_text = page.extract_text() or ""
         except Exception as exc:  # noqa: BLE001
             raise PdfParseError(f"Failed to extract PDF text: {exc}") from exc
         page_texts.append(page_text)
-
-    if not page_texts:
-        raise PdfParseError("PDF contains no readable pages.")
 
     first_page_text = normalize_text(page_texts[0])
     full_text = normalize_text("\n".join(page_texts))
