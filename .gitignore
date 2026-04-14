@@ -14,5 +14,5 @@ extracter/output/*
 研报/
 *.pdf
 
-backest/.env
-backest/data/*
+backtest/.env
+backtest/data/*
