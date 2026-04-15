@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
+
+from extracter.parser.data_dict_parser import load_data_dictionary
+from extracter.validation.result_validation import validate_generated_sample
 
 
 REQUIRED_SAMPLE_FIELDS = (
@@ -44,6 +50,8 @@ def prepare_dataset(lines: list[str], *, version_id: str, source_name: str) -> P
     review_records: list[dict[str, Any]] = []
     malformed_rows = 0
     schema_issue_rows = 0
+    data_dictionary = _load_data_dictionary()
+    seen_fingerprints: set[str] = set()
 
     for line_number, raw_line in enumerate(lines, start=1):
         stripped_line = raw_line.strip()
@@ -70,7 +78,11 @@ def prepare_dataset(lines: list[str], *, version_id: str, source_name: str) -> P
         if schema_issues:
             schema_issue_rows += 1
 
-        review_result = review_sample(normalized_sample)
+        review_result = review_sample(
+            normalized_sample,
+            data_dictionary=data_dictionary,
+            seen_fingerprints=seen_fingerprints,
+        )
         classification_result = classify_sample(normalized_sample)
         normalized_sample["class"] = classification_result.level
 
@@ -78,6 +90,7 @@ def prepare_dataset(lines: list[str], *, version_id: str, source_name: str) -> P
         all_issues = [*schema_issues, *review_result.issues]
         if review_result.keep:
             prepared_samples.append(normalized_sample)
+            seen_fingerprints.add(_build_sample_fingerprint(normalized_sample))
 
         review_records.append(
             {
@@ -144,20 +157,76 @@ def normalize_sample(sample: dict[str, Any], *, version_id: str) -> tuple[dict[s
     return normalized, schema_issues
 
 
-def review_sample(sample: dict[str, Any]) -> ReviewResult:
-    _ = sample
+def review_sample(
+    sample: dict[str, Any],
+    *,
+    data_dictionary: Any,
+    seen_fingerprints: set[str],
+) -> ReviewResult:
+    issues: list[str] = []
+
+    validator_errors = validate_generated_sample(sample, data_dictionary)
+    issues.extend(f"validator:{error}" for error in validator_errors)
+
+    inspiration = sample.get("inspiration", "").strip()
+    reasoning = sample.get("reasoning", "").strip()
+    formula = sample.get("factor_formula", "").strip()
+    code = sample.get("factor_python", "").strip()
+
+    if len(inspiration) < 12:
+        issues.append("quality:inspiration_too_short")
+    if len(reasoning) < 20:
+        issues.append("quality:reasoning_too_short")
+    if len(formula) < 5:
+        issues.append("quality:factor_formula_too_short")
+    if len(code) < 30:
+        issues.append("quality:factor_python_too_short")
+
+    fingerprint = _build_sample_fingerprint(sample)
+    if fingerprint in seen_fingerprints:
+        issues.append("duplicate:normalized_content")
+
     return ReviewResult(
-        keep=True,
-        issues=[],
-        implemented=False,
+        keep=len(issues) == 0,
+        issues=issues,
+        implemented=True,
     )
 
 
 def classify_sample(sample: dict[str, Any]) -> ClassificationResult:
-    _ = sample
+    required_inputs = sample.get("required_inputs", [])
+    inavailable_inputs = sample.get("inavailable_inputs", [])
+    signal_text = " ".join(
+        [
+            sample.get("factor_formula", ""),
+            sample.get("factor_python", ""),
+            sample.get("reasoning", ""),
+        ]
+    ).lower()
+    complexity_hits = sum(
+        token in signal_text
+        for token in (
+            "rolling",
+            "corr",
+            "cov",
+            "rank",
+            "std",
+            "mean",
+            "shift",
+            "diff",
+            "clip",
+        )
+    )
+
+    if inavailable_inputs or len(required_inputs) >= 4 or complexity_hits >= 4:
+        level = "hard"
+    elif len(required_inputs) >= 3 or complexity_hits >= 2:
+        level = "medium"
+    else:
+        level = "easy"
     return ClassificationResult(
-        level=None,
-        implemented=False,
+        level=level,
+        implemented=True,
     )
 
 
@@ -200,12 +269,12 @@ def build_summary(
             "length_output": _build_length_stats(output_lengths),
         },
         "cleaning_hook": {
-            "implemented": False,
-            "mode": "placeholder_keep_all",
+            "implemented": True,
+            "mode": "validator_and_dedup",
         },
         "classification_hook": {
-            "implemented": False,
-            "mode": "placeholder_null_class",
+            "implemented": True,
+            "mode": "heuristic_difficulty",
         },
     }
 
@@ -256,3 +325,26 @@ def _build_length_stats(lengths: list[int]) -> dict[str, float | int | None]:
         "max": max(lengths),
         "avg": round(sum(lengths) / len(lengths), 2),
     }
+
+
+def _build_sample_fingerprint(sample: dict[str, Any]) -> str:
+    payload = {
+        "inspiration": _normalize_text(sample.get("inspiration", "")),
+        "reasoning": _normalize_text(sample.get("reasoning", "")),
+        "factor_formula": _normalize_text(sample.get("factor_formula", "")),
+        "factor_python": _normalize_text(sample.get("factor_python", "")),
+        "required_inputs": [_normalize_text(item) for item in sample.get("required_inputs", [])],
+        "inavailable_inputs": [_normalize_text(item) for item in sample.get("inavailable_inputs", [])],
+    }
+    serialized = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _normalize_text(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+@lru_cache(maxsize=1)
+def _load_data_dictionary():
+    project_root = Path(__file__).resolve().parent.parent
+    return load_data_dictionary(project_root / "extracter/data_dict.md")

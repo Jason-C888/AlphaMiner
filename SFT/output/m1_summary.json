@@ -1,5 +1,5 @@
 {
-  "version": "sft_20260415T113919",
+  "version": "sft_20260415T151505",
   "source_name": "samples2.jsonl",
   "total_lines": 37,
   "kept_rows": 37,
@@ -22,12 +22,12 @@
     }
   },
   "cleaning_hook": {
-    "implemented": false,
-    "mode": "placeholder_keep_all"
+    "implemented": true,
+    "mode": "validator_and_dedup"
   },
   "classification_hook": {
-    "implemented": false,
-    "mode": "placeholder_null_class"
+    "implemented": true,
+    "mode": "heuristic_difficulty"
   },
   "input_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/extracter/output/samples2.jsonl",
   "prepared_samples_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/prepared_samples.jsonl",

@@ -49,7 +49,7 @@ SYSTEM_PROMPT = dedent(
 
 _CODE_BLOCK_PATTERN = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
 _INSPIRATION_PATTERN = re.compile(
-    r"现象描述：\s*(.*?)\s*可用字段：",
+    r"现象描述(?:\s*/\s*研究观察)?：\s*(.*?)\s*(?:允许使用的字段白名单|可用字段)：",
     re.DOTALL,
 )
 _FIELD_SPLIT_PATTERN = re.compile(r"[.,，:\s：]+")
@@ -72,13 +72,7 @@ def build_user_prompt_from_inspiration(inspiration: str, allowed_fields_text: st
     normalized_inspiration = inspiration or "无"
     return dedent(
         f"""
-        任务：根据给定现象与约束，生成一个可计算的单因子定义结果。
-
-        现象描述：
-        {normalized_inspiration}
-
-        可用字段：
-        {allowed_fields_text}
+        任务：根据给定现象与约束，生成单因子定义结果。
 
         输出格式必须是 JSON 对象，形如：
         {{
@@ -89,14 +83,20 @@ def build_user_prompt_from_inspiration(inspiration: str, allowed_fields_text: st
           "inavailable_inputs": []
         }}
 
+        现象描述 / 研究观察：
+        {normalized_inspiration}
+
+        允许使用的字段白名单：
+        {allowed_fields_text}
+
         生成要求：
-        1. reasoning 必须直接解释金融现象、市场规律和因子定义
-        2. factor_formula 必须单独给出明确公式；若存在近似替代，需与 reasoning 和 inavailable_inputs 保持一致
-        3. required_inputs 只能填写实际参与计算的白名单字段，并与 factor_python 参数完全一致
-        4. factor_python 必须是单个向量化 compute_factor 函数，禁止逐股票循环，禁止注释、print、logging
-        5. 仅允许日频计算，滚动窗口不得超过 252 个交易日或 12 个月，不得使用 paused
-        6. 若原始逻辑依赖白名单外字段，优先做合理近似；无法近似时再写入 inavailable_inputs
-        7. 只输出上述 JSON 对象，不附带任何额外文字
+        1. 仅输出 reasoning / factor_formula / factor_python / required_inputs / inavailable_inputs 五个字段
+        2. reasoning 只解释金融逻辑与定义，不要复述来源
+        3. factor_formula 必须给出明确数学定义，并与 reasoning、factor_python 一致
+        4. required_inputs 必须只列出实际使用、且在白名单内的字段
+        5. factor_python 必须是向量化宽表实现，函数名固定为 compute_factor
+        6. 若原始逻辑依赖不可用字段，请优先做合理近似；确实无法替代时再写入 inavailable_inputs
+        7. 只使用日频数据，不得使用 paused，不得输出额外文字
         """
     ).strip()
 
