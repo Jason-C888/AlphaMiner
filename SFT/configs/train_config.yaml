@@ -1,5 +1,7 @@
 model:
-  base_model_name_or_path: Qwen/Qwen3-0.6B
+  model_id: Qwen/Qwen3-0.6B
+  local_model_dir: ../../model/base/Qwen3-0.6B
+  revision: null
   trust_remote_code: true
   use_lora: true
   use_qlora: true
@@ -30,8 +32,8 @@ data:
   preprocessing_num_workers: 1
 
 run:
-  output_dir: ../checkpoints/qwen3_0_6b_lora
-  logging_dir: ../output/train_logs
+  output_dir: ../../trained/qwen3_0_6b_lora
+  logging_dir: ../../trained/qwen3_0_6b_lora/logs
   num_train_epochs: 2.0
   per_device_train_batch_size: 1
   per_device_eval_batch_size: 1

@@ -1,3 +1,13 @@
+# 推理后端说明：
+# 1. openai_compat：填写 model/base_url/api_key_env 或 api_key
+# 2. local_hf：将 backend.type 改为 local_hf，并填写下方 base_model_path，
+#    如需加载训练后的 LoRA adapter，再填写 adapter_path
+# 示例：
+# backend:
+#   type: local_hf
+#   base_model_path: ../../model/base/Qwen3-0.6B
+#   adapter_path: ../../trained/qwen3_0_6b_lora
+
 env_file: ../../extracter/.env
 default_eval_input_path: SFT/data/test.jsonl
 

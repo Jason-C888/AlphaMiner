@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 
+from .model_manager import ensure_local_model
 from .train_config import TrainConfig, load_train_config
 
 
@@ -33,10 +35,11 @@ def train(config: TrainConfig) -> None:
 
     config.run.output_dir.mkdir(parents=True, exist_ok=True)
     config.run.logging_dir.mkdir(parents=True, exist_ok=True)
-    write_run_manifest(config)
+    base_model_path = resolve_training_base_model_path(config)
+    write_run_manifest(config, base_model_path)
 
     tokenizer = AutoTokenizer.from_pretrained(
-        config.model.base_model_name_or_path,
+        str(base_model_path),
         trust_remote_code=config.model.trust_remote_code,
     )
     if tokenizer.pad_token_id is None:
@@ -107,7 +110,7 @@ def train(config: TrainConfig) -> None:
     )
 
     trainer = SFTTrainer(
-        model=config.model.base_model_name_or_path,
+        model=str(base_model_path),
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
@@ -119,11 +122,21 @@ def train(config: TrainConfig) -> None:
     tokenizer.save_pretrained(config.run.output_dir)
 
 
-def write_run_manifest(config: TrainConfig) -> None:
+def resolve_training_base_model_path(config: TrainConfig) -> Path:
+    return ensure_local_model(
+        model_id=config.model.model_id,
+        local_model_dir=config.model.local_model_dir,
+        revision=config.model.revision,
+    )
+
+
+def write_run_manifest(config: TrainConfig, base_model_path: Path) -> None:
     manifest_path = config.run.output_dir / "run_manifest.json"
     payload = {
         "config_path": str(config.config_path),
-        "base_model_name_or_path": config.model.base_model_name_or_path,
+        "model_id": config.model.model_id,
+        "local_model_dir": str(config.model.local_model_dir),
+        "resolved_base_model_path": str(base_model_path),
         "train_file": str(config.data.train_file),
         "val_file": str(config.data.val_file),
         "test_file": str(config.data.test_file) if config.data.test_file else None,

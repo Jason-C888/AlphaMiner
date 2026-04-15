@@ -4,6 +4,7 @@ import argparse
 import json
 
 from .configs import DEFAULT_DATA_DIR, DEFAULT_OUTPUT_DIR, build_runtime_config
+from .download_model import download_from_config
 from .inference_config import DEFAULT_INFERENCE_CONFIG_PATH, load_inference_config
 from .pipeline import (
     asdict_result,
@@ -20,7 +21,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SFT pipeline entrypoint.")
     parser.add_argument(
         "--stage",
-        choices=("m1", "m2", "m3", "infer", "eval"),
+        choices=("m1", "m2", "m3", "download", "infer", "eval"),
         required=True,
         help="SFT stage to run.",
     )
@@ -70,14 +71,31 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
-    if args.stage == "m3":
+    if args.stage in {"m3", "download"}:
         train_config = load_train_config(args.train_config)
+        if args.stage == "download":
+            local_model_dir = download_from_config(train_config)
+            print(
+                json.dumps(
+                    {
+                        "stage": "download",
+                        "config_path": str(train_config.config_path),
+                        "model_id": train_config.model.model_id,
+                        "local_model_dir": str(local_model_dir),
+                    },
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return 0
         train(train_config)
         print(
             json.dumps(
                 {
                     "stage": "m3",
                     "config_path": str(train_config.config_path),
+                    "model_id": train_config.model.model_id,
+                    "local_model_dir": str(train_config.model.local_model_dir),
                     "output_dir": str(train_config.run.output_dir),
                     "trainer_framework": "trl",
                 },

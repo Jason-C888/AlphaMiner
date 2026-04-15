@@ -7,7 +7,9 @@ from typing import Any
 
 @dataclass(frozen=True)
 class ModelConfig:
-    base_model_name_or_path: str
+    model_id: str
+    local_model_dir: Path
+    revision: str | None = None
     trust_remote_code: bool = True
     use_lora: bool = True
     use_qlora: bool = True
@@ -68,10 +70,13 @@ def load_train_config(path: str | Path) -> TrainConfig:
     resolved_path = Path(path).resolve()
     raw = _load_yaml(resolved_path)
 
-    model = ModelConfig(**raw["model"])
+    model_section = dict(raw["model"])
+    if "model_id" not in model_section and "base_model_name_or_path" in model_section:
+        model_section["model_id"] = model_section.pop("base_model_name_or_path")
+    model_section["local_model_dir"] = _resolve_path(config_dir := resolved_path.parent, model_section["local_model_dir"])
+    model = ModelConfig(**model_section)
     data_section = raw["data"]
     run_section = raw["run"]
-    config_dir = resolved_path.parent
     data = DataConfig(
         train_file=_resolve_path(config_dir, data_section["train_file"]),
         val_file=_resolve_path(config_dir, data_section["val_file"]),
