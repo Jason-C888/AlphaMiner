@@ -12,7 +12,9 @@ extracter/.vendor/
 extracter/output/*
 !extracter/output/.gitkeep
 研报/
+
 *.pdf
+*.jsonl
 
 backtest/.env
 backtest/data/*

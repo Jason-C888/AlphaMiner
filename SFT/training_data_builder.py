@@ -7,6 +7,7 @@ from typing import Any
 
 from extracter.parser.data_dict_parser import load_data_dictionary
 
+from .progress import iter_progress
 from .prompt_builder import build_allowed_fields_text, build_prompt_completion_record
 
 
@@ -20,7 +21,7 @@ class ChatSplitDataset:
 def build_chat_splits(lines: list[str], *, data_dict_path: str, source_name: str) -> ChatSplitDataset:
     prepared_samples = [
         _normalize_prepared_sample_metadata(json.loads(line))
-        for line in lines
+        for line in iter_progress(lines, desc="M2 Normalize", total=len(lines), unit="sample")
         if line.strip()
     ]
     data_dictionary = load_data_dictionary(data_dict_path)
@@ -30,14 +31,24 @@ def build_chat_splits(lines: list[str], *, data_dict_path: str, source_name: str
             "sample": sample,
             "chat_record": build_prompt_completion_record(sample, allowed_fields_text),
         }
-        for sample in prepared_samples
+        for sample in iter_progress(
+            prepared_samples,
+            desc="M2 Chat Records",
+            total=len(prepared_samples),
+            unit="sample",
+        )
     ]
 
     split_assignments = assign_report_splits(prepared_samples)
     split_records = {"train": [], "val": [], "test": []}
     split_manifest: list[dict[str, Any]] = []
 
-    for entry in chat_entries:
+    for entry in iter_progress(
+        chat_entries,
+        desc="M2 Split Assignment",
+        total=len(chat_entries),
+        unit="sample",
+    ):
         sample = entry["sample"]
         split = split_assignments[sample["report_title"]]
         split_records[split].append(entry["chat_record"])
@@ -76,7 +87,14 @@ def assign_report_splits(prepared_samples: list[dict[str, Any]]) -> dict[str, st
     train_count, val_count, test_count = compute_split_counts(len(report_titles))
     assignments: dict[str, str] = {}
 
-    for index, report_title in enumerate(report_titles):
+    for index, report_title in enumerate(
+        iter_progress(
+            report_titles,
+            desc="M2 Report Splits",
+            total=len(report_titles),
+            unit="report",
+        )
+    ):
         if index < train_count:
             assignments[report_title] = "train"
         elif index < train_count + val_count:

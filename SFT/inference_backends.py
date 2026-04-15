@@ -78,15 +78,15 @@ class LocalHFBackend(InferenceBackend):
 
     def generate(self, messages: list[dict[str, str]]) -> BackendResponse:
         model, tokenizer = self._load_model_and_tokenizer()
-        input_ids = self._build_input_ids(tokenizer, messages)
+        model_inputs = self._build_model_inputs(tokenizer, messages)
         generate_kwargs = {
             "max_new_tokens": self._config.generation.max_new_tokens,
             "do_sample": self._config.generation.temperature > 0,
         }
         if generate_kwargs["do_sample"]:
             generate_kwargs["temperature"] = self._config.generation.temperature
-        outputs = model.generate(input_ids=input_ids, **generate_kwargs)
-        generated_tokens = outputs[0][input_ids.shape[-1] :]
+        outputs = model.generate(**model_inputs, **generate_kwargs)
+        generated_tokens = outputs[0][model_inputs["input_ids"].shape[-1] :]
         raw_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
         parsed_json, parse_error = parse_model_output(raw_text)
         return BackendResponse(
@@ -105,22 +105,49 @@ class LocalHFBackend(InferenceBackend):
             return str(self._config.backend.base_model_path)
         return "local_hf"
 
-    def _build_input_ids(self, tokenizer: Any, messages: list[dict[str, str]]):
+    def _build_model_inputs(self, tokenizer: Any, messages: list[dict[str, str]]):
         import torch
 
         if hasattr(tokenizer, "apply_chat_template"):
-            encoded = tokenizer.apply_chat_template(
-                messages,
-                add_generation_prompt=True,
-                return_tensors="pt",
-            )
+            try:
+                encoded = tokenizer.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
+                    return_dict=True,
+                )
+            except TypeError:
+                encoded = tokenizer.apply_chat_template(
+                    messages,
+                    add_generation_prompt=True,
+                    return_tensors="pt",
+                )
         else:
             prompt_text = "\n\n".join(
                 f"{message['role']}: {message['content']}"
                 for message in messages
             ) + "\n\nassistant:"
-            encoded = tokenizer(prompt_text, return_tensors="pt")["input_ids"]
-        return encoded.to(self._resolve_device(torch))
+            encoded = tokenizer(prompt_text, return_tensors="pt")
+
+        if isinstance(encoded, torch.Tensor):
+            input_ids = encoded
+            attention_mask = None
+        else:
+            try:
+                input_ids = encoded["input_ids"]
+                attention_mask = encoded.get("attention_mask") if hasattr(encoded, "get") else None
+            except (TypeError, KeyError, IndexError):
+                input_ids = encoded
+                attention_mask = None
+
+        if attention_mask is None:
+            attention_mask = torch.ones_like(input_ids, dtype=torch.long)
+
+        device = self._resolve_device(torch)
+        return {
+            "input_ids": input_ids.to(device),
+            "attention_mask": attention_mask.to(device),
+        }
 
     def _load_model_and_tokenizer(self):
         if self._model is not None and self._tokenizer is not None:
@@ -132,9 +159,7 @@ class LocalHFBackend(InferenceBackend):
         if self._config.backend.base_model_path is None:
             raise InferenceBackendError("local_hf backend requires base_model_path.")
 
-        model_kwargs: dict[str, Any] = {
-            "trust_remote_code": self._config.runtime.trust_remote_code,
-        }
+        model_kwargs = self._build_model_kwargs(_resolve_torch_dtype)
         if self._config.runtime.load_in_4bit:
             model_kwargs["quantization_config"] = BitsAndBytesConfig(
                 load_in_4bit=True,
@@ -142,11 +167,6 @@ class LocalHFBackend(InferenceBackend):
                 bnb_4bit_compute_dtype=_resolve_torch_dtype(self._config.runtime.torch_dtype),
             )
             model_kwargs["device_map"] = "auto"
-        elif self._config.runtime.device == "auto":
-            model_kwargs["device_map"] = "auto"
-            model_kwargs["torch_dtype"] = _resolve_torch_dtype(self._config.runtime.torch_dtype)
-        else:
-            model_kwargs["torch_dtype"] = _resolve_torch_dtype(self._config.runtime.torch_dtype)
 
         tokenizer = AutoTokenizer.from_pretrained(
             self._config.backend.base_model_path,
@@ -169,6 +189,17 @@ class LocalHFBackend(InferenceBackend):
         self._model = model
         self._tokenizer = tokenizer
         return model, tokenizer
+
+    def _build_model_kwargs(self, resolve_dtype):
+        model_kwargs: dict[str, Any] = {
+            "trust_remote_code": self._config.runtime.trust_remote_code,
+        }
+        if self._config.runtime.load_in_4bit:
+            return model_kwargs
+        if self._config.runtime.device == "auto":
+            model_kwargs["device_map"] = "auto"
+        model_kwargs["dtype"] = resolve_dtype(self._config.runtime.torch_dtype)
+        return model_kwargs
 
     def _resolve_device(self, torch_module: Any) -> str:
         if self._config.runtime.device != "auto":

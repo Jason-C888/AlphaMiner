@@ -10,6 +10,8 @@ from typing import Any
 from extracter.parser.data_dict_parser import load_data_dictionary
 from extracter.validation.result_validation import validate_generated_sample
 
+from .progress import iter_progress
+
 
 REQUIRED_SAMPLE_FIELDS = (
     "sample_id",
@@ -53,7 +55,10 @@ def prepare_dataset(lines: list[str], *, version_id: str, source_name: str) -> P
     data_dictionary = _load_data_dictionary()
     seen_fingerprints: set[str] = set()
 
-    for line_number, raw_line in enumerate(lines, start=1):
+    for line_number, raw_line in enumerate(
+        iter_progress(lines, desc="M1 Samples", total=len(lines), unit="sample"),
+        start=1,
+    ):
         stripped_line = raw_line.strip()
         if not stripped_line:
             continue

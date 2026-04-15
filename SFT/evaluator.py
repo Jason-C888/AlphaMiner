@@ -10,6 +10,7 @@ from extracter.validation.result_validation import validate_generated_sample
 
 from .inference_backends import BackendResponse, InferenceBackend
 from .inference_config import InferenceConfig
+from .progress import iter_progress
 from .prompt_builder import (
     GENERATION_OUTPUT_FIELDS,
     extract_inspiration_from_messages,
@@ -46,7 +47,7 @@ def evaluate_records(
         "factor_formula_exact_match": 0,
     }
 
-    for raw_line in lines:
+    for raw_line in iter_progress(lines, desc="Eval Samples", total=len(lines), unit="sample"):
         if not raw_line.strip():
             continue
         dataset_row = json.loads(raw_line)
