@@ -1,0 +1,10 @@
+{
+  "reasoning": "高换手率叠加价格强势反映短期关注度上升。换手率衡量交易活跃度，价格强势可用近期收益率衡量。将换手率与收益率结合，捕捉高关注度且价格表现强势的股票。因子定义为过去N日平均换手率与过去M日收益率的乘积，以同时捕捉交易活跃与价格动量。",
+  "factor_formula": "factor = mean(turnover_ratio, N) * (close / close_shift(M) - 1)，其中N为换手率计算窗口，M为收益率计算窗口。",
+  "factor_python": "def compute_factor(turnover_ratio, close):\n    import pandas as pd\n    import numpy as np\n    N = 20\n    M = 5\n    avg_turnover = turnover_ratio.rolling(window=N, min_periods=1).mean()\n    ret = close / close.shift(M) - 1\n    factor = avg_turnover * ret\n    return factor",
+  "required_inputs": [
+    "turnover_ratio",
+    "close"
+  ],
+  "inavailable_inputs": []
+}

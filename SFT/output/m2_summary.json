@@ -14,8 +14,20 @@
     "test": 7
   },
   "versions": [
-    "sft_20260412T153913"
+    "sft_20260415T113919"
   ],
+  "length_stats": {
+    "length_input": {
+      "min": 31,
+      "max": 96,
+      "avg": 50.16
+    },
+    "length_output": {
+      "min": 184,
+      "max": 521,
+      "avg": 307.73
+    }
+  },
   "split_strategy": {
     "unit": "report_title",
     "target_ratio": {

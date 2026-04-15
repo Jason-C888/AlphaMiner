@@ -4,7 +4,14 @@ import argparse
 import json
 
 from .configs import DEFAULT_DATA_DIR, DEFAULT_OUTPUT_DIR, build_runtime_config
-from .pipeline import asdict_result, run_m1_pipeline, run_m2_pipeline
+from .inference_config import DEFAULT_INFERENCE_CONFIG_PATH, load_inference_config
+from .pipeline import (
+    asdict_result,
+    run_eval_pipeline,
+    run_infer_pipeline,
+    run_m1_pipeline,
+    run_m2_pipeline,
+)
 from .trainer import train
 from .train_config import load_train_config
 
@@ -13,14 +20,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="SFT pipeline entrypoint.")
     parser.add_argument(
         "--stage",
-        choices=("m1", "m2", "m3"),
+        choices=("m1", "m2", "m3", "infer", "eval"),
         required=True,
         help="SFT stage to run.",
     )
     parser.add_argument(
         "--input-path",
         default=None,
-        help="Path to extracter sample JSONL. Defaults to the first available known candidate.",
+        help="Path to the input JSONL for m1/m2/eval. Defaults to stage-specific known candidates.",
     )
     parser.add_argument(
         "--data-dir",
@@ -41,6 +48,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--train-config",
         default="SFT/configs/train_config.yaml",
         help="YAML config path used by stage m3.",
+    )
+    parser.add_argument(
+        "--inference-config",
+        default=DEFAULT_INFERENCE_CONFIG_PATH,
+        help="YAML config path used by stages infer/eval.",
+    )
+    parser.add_argument(
+        "--inspiration",
+        default=None,
+        help="Phenomenon description used by stage infer.",
+    )
+    parser.add_argument(
+        "--save-path",
+        default=None,
+        help="Optional JSON output path used by stage infer.",
     )
     return parser
 
@@ -63,6 +85,29 @@ def main() -> int:
                 indent=2,
             )
         )
+        return 0
+
+    if args.stage in {"infer", "eval"}:
+        inference_config = load_inference_config(args.inference_config)
+        if args.stage == "infer":
+            if not args.inspiration:
+                parser.error("--inspiration is required when --stage infer")
+            result = run_infer_pipeline(
+                inference_config=inference_config,
+                inspiration=args.inspiration,
+                output_dir=args.output_dir,
+                save_path=args.save_path,
+            )
+            print(json.dumps(result.payload, ensure_ascii=False, indent=2))
+            return 0
+        else:
+            input_path = args.input_path or inference_config.default_eval_input_path
+            result = run_eval_pipeline(
+                inference_config=inference_config,
+                input_path=input_path,
+                output_dir=args.output_dir,
+            )
+        print(json.dumps(asdict_result(result), ensure_ascii=False, indent=2))
         return 0
 
     config = build_runtime_config(

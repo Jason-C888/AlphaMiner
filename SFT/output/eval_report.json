@@ -1,0 +1,21 @@
+{
+  "backend_type": "openai_compat",
+  "model_name": "deepseek-chat",
+  "sample_count": 7,
+  "success_count": 7,
+  "valid_json_rate": 1.0,
+  "required_keys_rate": 1.0,
+  "validator_pass_rate": 0.4286,
+  "python_ast_parse_rate": 1.0,
+  "required_inputs_arg_match_rate": 1.0,
+  "whitelist_compliance_rate": 0.4286,
+  "required_inputs_exact_match_rate": 0.4286,
+  "inavailable_inputs_exact_match_rate": 1.0,
+  "factor_formula_exact_match_rate": 0.0,
+  "failure_type_breakdown": {
+    "validator": 4
+  },
+  "input_path": "/Users/king/Documents/硕士/Sem2/8307Natural_language_processing_and_text_analytics/Proj_v2/SFT/data/test.jsonl",
+  "eval_records_path": "SFT/output/eval_records.jsonl",
+  "eval_report_path": "SFT/output/eval_report.json"
+}

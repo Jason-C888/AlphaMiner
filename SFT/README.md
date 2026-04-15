@@ -115,7 +115,10 @@ SFT 的原始输入样本沿用 Extracter 输出 schema：
 
 字段含义以 `extracter/README.md` 中的定义为准；SFT 阶段不重定义字段语义，只在训练构造时决定如何映射到 prompt 和目标输出。
 
-进行预处理后保留干净样本并加入难度分层字段class： 简单、中等、困难，version数据生产版本，用触发时间作为id，sft作为前缀
+进行预处理后保留干净样本，并加入难度分层字段 `class`（简单、中等、困难）、数据生产版本 `version`（以 `sft_<timestamp>` 形式生成），同时提前计算：
+
+- `length_input`：`inspiration` 的字符长度
+- `length_output`：`reasoning + factor_formula + factor_python` 的字符总长度
 
 ```python
 {
@@ -130,7 +133,9 @@ SFT 的原始输入样本沿用 Extracter 输出 schema：
   "factor_formula": "string",
   "factor_python": "string",
   "required_inputs": ["string"],
-  "inavailable_inputs": ["string"]
+  "inavailable_inputs": ["string"],
+  "length_input": 0,
+  "length_output": 0
 }
 ```
 
@@ -181,11 +186,6 @@ SFT 的监督目标是 assistant 侧完整 JSON。输出结构保持如下形式
 
 ```python
 {
-  "sample_id": "...",
-  "report_title": "...",
-  "report_date": "...",
-  "broker": "...",
-  "inspiration": "...",
   "reasoning": "...",
   "factor_formula": "...",
   "factor_python": "def compute_factor(...):\n    ...",
@@ -200,6 +200,27 @@ SFT 的监督目标是 assistant 侧完整 JSON。输出结构保持如下形式
 - 不附带前后说明文字
 - 字段间语义必须一致
 - `factor_python` 必须保持为单个 `compute_factor` 函数
+
+### 6.5 评估结果数据结构
+
+评估中，将数据集中的元信息和SFT数据信息拼接合成最总的评估数据
+
+ ```python
+ {
+   "inspiration": "...",
+   "sample_id": "...",
+   "report_title": "...",
+   "report_date": "...",
+   "broker": "...",
+   "reasoning": "...",
+   "factor_formula": "...",
+   "factor_python": "def compute_factor(...):\n    ...",
+   "required_inputs": ["..."],
+   "inavailable_inputs": []
+ }
+ ```
+
+
 
 ## 7. 数据构建与清洗设计
 

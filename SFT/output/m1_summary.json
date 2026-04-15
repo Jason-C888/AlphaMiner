@@ -1,5 +1,5 @@
 {
-  "version": "sft_20260412T153913",
+  "version": "sft_20260415T113919",
   "source_name": "samples2.jsonl",
   "total_lines": 37,
   "kept_rows": 37,
@@ -9,6 +9,18 @@
   "prepared_sample_count": 37,
   "unique_report_count": 5,
   "unique_broker_count": 4,
+  "length_stats": {
+    "length_input": {
+      "min": 31,
+      "max": 96,
+      "avg": 50.16
+    },
+    "length_output": {
+      "min": 184,
+      "max": 521,
+      "avg": 307.73
+    }
+  },
   "cleaning_hook": {
     "implemented": false,
     "mode": "placeholder_keep_all"

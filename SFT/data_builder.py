@@ -135,6 +135,12 @@ def normalize_sample(sample: dict[str, Any], *, version_id: str) -> tuple[dict[s
         field_name="inavailable_inputs",
         schema_issues=schema_issues,
     )
+    normalized["length_input"] = _compute_text_length(normalized["inspiration"])
+    normalized["length_output"] = _compute_text_length(
+        normalized["reasoning"],
+        normalized["factor_formula"],
+        normalized["factor_python"],
+    )
     return normalized, schema_issues
 
 
@@ -176,6 +182,8 @@ def build_summary(
         for sample in prepared_samples
         if sample["broker"]
     }
+    input_lengths = [sample["length_input"] for sample in prepared_samples]
+    output_lengths = [sample["length_output"] for sample in prepared_samples]
     return {
         "version": version_id,
         "source_name": source_name,
@@ -187,6 +195,10 @@ def build_summary(
         "prepared_sample_count": len(prepared_samples),
         "unique_report_count": len(unique_reports),
         "unique_broker_count": len(unique_brokers),
+        "length_stats": {
+            "length_input": _build_length_stats(input_lengths),
+            "length_output": _build_length_stats(output_lengths),
+        },
         "cleaning_hook": {
             "implemented": False,
             "mode": "placeholder_keep_all",
@@ -226,3 +238,21 @@ def _as_string_list(
         return [_as_string(item) for item in value]
     schema_issues.append(f"invalid_type:{field_name}")
     return [_as_string(value)]
+
+
+def _compute_text_length(*parts: str) -> int:
+    return sum(len(part) for part in parts if part)
+
+
+def _build_length_stats(lengths: list[int]) -> dict[str, float | int | None]:
+    if not lengths:
+        return {
+            "min": None,
+            "max": None,
+            "avg": None,
+        }
+    return {
+        "min": min(lengths),
+        "max": max(lengths),
+        "avg": round(sum(lengths) / len(lengths), 2),
+    }

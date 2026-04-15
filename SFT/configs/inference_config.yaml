@@ -1,0 +1,23 @@
+env_file: ../../extracter/.env
+default_eval_input_path: SFT/data/test.jsonl
+
+backend:
+  type: openai_compat
+  model: deepseek-chat
+  base_url: https://api.deepseek.com
+  api_key_env: LLM_API_KEY
+  api_key:
+  base_model_path:
+  adapter_path:
+
+generation:
+  temperature: 0.2
+  max_new_tokens: 1024
+  timeout: 120
+  max_retries: 2
+
+runtime:
+  device: auto
+  torch_dtype: bfloat16
+  load_in_4bit: false
+  trust_remote_code: true

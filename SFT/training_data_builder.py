@@ -18,7 +18,11 @@ class ChatSplitDataset:
 
 
 def build_chat_splits(lines: list[str], *, data_dict_path: str, source_name: str) -> ChatSplitDataset:
-    prepared_samples = [json.loads(line) for line in lines if line.strip()]
+    prepared_samples = [
+        _normalize_prepared_sample_metadata(json.loads(line))
+        for line in lines
+        if line.strip()
+    ]
     data_dictionary = load_data_dictionary(data_dict_path)
     allowed_fields_text = build_allowed_fields_text(data_dictionary)
     chat_entries = [
@@ -45,6 +49,8 @@ def build_chat_splits(lines: list[str], *, data_dict_path: str, source_name: str
                 "broker": sample.get("broker"),
                 "class": sample.get("class"),
                 "version": sample.get("version"),
+                "length_input": sample.get("length_input"),
+                "length_output": sample.get("length_output"),
                 "split": split,
             }
         )
@@ -124,6 +130,16 @@ def build_m2_summary(
             if sample.get("version")
         }
     )
+    input_lengths = [
+        sample["length_input"]
+        for sample in prepared_samples
+        if isinstance(sample.get("length_input"), int)
+    ]
+    output_lengths = [
+        sample["length_output"]
+        for sample in prepared_samples
+        if isinstance(sample.get("length_output"), int)
+    ]
     return {
         "source_name": source_name,
         "input_sample_count": len(prepared_samples),
@@ -132,6 +148,10 @@ def build_m2_summary(
         "report_split_counts": report_split_counts,
         "sample_split_counts": sample_split_counts,
         "versions": versions,
+        "length_stats": {
+            "length_input": _build_length_stats(input_lengths),
+            "length_output": _build_length_stats(output_lengths),
+        },
         "split_strategy": {
             "unit": "report_title",
             "target_ratio": {"train": 0.8, "val": 0.1, "test": 0.1},
@@ -145,3 +165,43 @@ def build_m2_summary(
 def _stable_report_sort_key(report_title: str) -> tuple[str, str]:
     digest = hashlib.sha256(report_title.encode("utf-8")).hexdigest()
     return digest, report_title
+
+
+def _normalize_prepared_sample_metadata(sample: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(sample)
+    normalized["length_input"] = _coerce_length(
+        normalized.get("length_input"),
+        fallback=len(normalized.get("inspiration") or ""),
+    )
+    normalized["length_output"] = _coerce_length(
+        normalized.get("length_output"),
+        fallback=sum(
+            len(normalized.get(field) or "")
+            for field in ("reasoning", "factor_formula", "factor_python")
+        ),
+    )
+    return normalized
+
+
+def _coerce_length(value: Any, *, fallback: int) -> int:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        stripped = value.strip()
+        if stripped.isdigit():
+            return int(stripped)
+    return fallback
+
+
+def _build_length_stats(lengths: list[int]) -> dict[str, float | int | None]:
+    if not lengths:
+        return {
+            "min": None,
+            "max": None,
+            "avg": None,
+        }
+    return {
+        "min": min(lengths),
+        "max": max(lengths),
+        "avg": round(sum(lengths) / len(lengths), 2),
+    }
