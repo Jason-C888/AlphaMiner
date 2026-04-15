@@ -13,9 +13,9 @@ default_eval_input_path: SFT/data/test.jsonl
 
 backend:
   type: openai_compat
-  model: deepseek-chat
-  base_url: https://api.deepseek.com
-  api_key_env: LLM_API_KEY
+  model: deepseek-ai/DeepSeek-V3.2
+  base_url: https://api.siliconflow.cn/v1
+  api_key_env: SILICONFLOW_API_KEY
   api_key:
   base_model_path:
   adapter_path:

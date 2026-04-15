@@ -47,7 +47,10 @@ def parse_pdf(path: str | Path) -> ParsedPdf:
     except Exception as exc:  # noqa: BLE001
         raise PdfParseError(f"Failed to open PDF: {exc}") from exc
 
-    pages = list(reader.pages)
+    try:
+        pages = list(reader.pages)
+    except Exception as exc:  # noqa: BLE001
+        raise PdfParseError(f"Failed to read PDF pages: {exc}") from exc
     if not pages:
         raise PdfParseError("PDF contains no readable pages.")
     pages_to_parse = pages[:-1] if len(pages) > 1 else pages
