@@ -15,6 +15,7 @@ extracter/output/*
 
 *.pdf
 *.jsonl
+*.json
 
 backtest/.env
 backtest/data/*
