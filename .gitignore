@@ -13,3 +13,6 @@ extracter/output/*
 !extracter/output/.gitkeep
 研报/
 *.pdf
+
+backtest/.env
+backtest/data/*
