@@ -22,9 +22,8 @@ class Config:
         'cash_flow_data': os.path.join(DATA_DIR, 'cash_flow.csv'),
         'income_data': os.path.join(DATA_DIR, 'income.csv'),
         'indicator_data': os.path.join(DATA_DIR, 'indicator.csv'),
-        'factor_jsonl': os.path.join(DATA_DIR, 'samples.jsonl'),
+        'factor_jsonl': os.path.join(DATA_DIR, 'eval_records.jsonl'),
     }
-
     # backtest parameters
     BACKTEST = {
         'index_code': '000300.XSHG',

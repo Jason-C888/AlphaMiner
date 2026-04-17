@@ -13,6 +13,6 @@ if __name__ == '__main__':
     run_pipeline()
 
     # test a single factor, specify the target_factor_id (e.g., 'factor_43')
-    # run_pipeline(target_factor_id='factor_43')
+    # run_pipeline(target_factor_id='factor_2')
     
     print("=== Complete Backtesting! ===")   

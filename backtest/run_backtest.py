@@ -67,6 +67,7 @@ def run_pipeline(target_factor_id=None):
         return
 
     # Factor backtesting
+    print(f"Starting backtest for factors. Total factors in JSONL: {len(factor_info)}")
     for i, info in enumerate(factor_info):
         factor_id = f"factor_{i}"
 
@@ -74,7 +75,10 @@ def run_pipeline(target_factor_id=None):
         if target_factor_id is not None and factor_id != target_factor_id:
             continue
 
-        code_str = info['factor_python']
+        if 'prediction' in info and 'factor_python' in info['prediction']:
+            code_str = info['prediction']['factor_python']
+        else:
+            code_str = info['factor_python']
 
         local_env = {}
         try:
